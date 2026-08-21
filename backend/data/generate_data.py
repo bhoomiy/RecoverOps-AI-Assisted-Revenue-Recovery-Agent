@@ -171,6 +171,7 @@ for _ in range(NO_OF_TRANSACTIONS):
 conn.commit()
 conn.close()
 
+
 print("Data generation completed successfully.")
 print(f"{NO_OF_CUSTOMERS} customers generated.")
 print(f"{NO_OF_TRANSACTIONS} transactions generated.")
