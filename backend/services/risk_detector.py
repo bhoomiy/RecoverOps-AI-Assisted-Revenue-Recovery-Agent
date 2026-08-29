@@ -74,8 +74,13 @@ def risk_level_detector(amount_at_risk):
     return risk_level
 
 
-def detect_revenue_risk(event):
-    for index,event in df.iterrows():
+def detect_revenue_risk(transaction_id):
+        event= df[df["transaction_id"] == transaction_id]
+
+        if event.empty:
+            return None
+
+        event = event.iloc[0]
         result={}
         if event["event_type"]=="PAYMENT_FAILED":
             risk=True
