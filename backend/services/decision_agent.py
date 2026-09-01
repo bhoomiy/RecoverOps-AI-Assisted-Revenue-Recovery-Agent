@@ -6,22 +6,36 @@ import sqlite3
 transaction_id = 3658
 customer_id = 3
 
-# Call Risk Detector
-risk_result = detect_revenue_risk(transaction_id)
-
-# Call Customer Analyzer
-customer_result = analyze_customer(customer_id, transaction_id)
 
 #get transaction details
 DB_NAME=r"C:\Users\RADHAGOPINATH\recovery_revenue.db"
-conn=sqlite3.connect(DB_NAME)
-conn.row_factory = sqlite3.Row
-cursor=conn.cursor()
-cursor.execute("SELECT * FROM transactions WHERE transac_id = ?", (transaction_id,))
-row = cursor.fetchone()
 
-# Convert to dict
-transaction_details = dict(row)
+
+def get_decision(transaction_id, customer_id):
+    # Call Risk Detector
+    risk_result = detect_revenue_risk(transaction_id)
+
+    # Call Customer Analyzer
+    customer_result = analyze_customer(customer_id, transaction_id)
+
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM transactions WHERE transac_id = ?",(transaction_id,))
+
+    row = cursor.fetchone()
+    transaction_details = dict(row)
+
+    conn.close()
+
+    decision = decide_recovery_action(
+        risk_result,
+        customer_result,
+        transaction_details
+    )
+
+    return decision
 
 #for customer value
 def decide_priority(risk_result, customer_result):
@@ -79,7 +93,7 @@ def decide_recovery_action(risk_result, customer_result,transaction_details):
 
 
         else:
-            action="NO ACTION"
+            action="NO_ACTION"
             reason="Payment failure reason is unknown"
         
     elif event_type == "CHECKOUT_ABANDONED":
@@ -107,20 +121,25 @@ def decide_recovery_action(risk_result, customer_result,transaction_details):
         reason = "Transaction was successful, so no recovery action is required"
 
     else:
-        action="NO ACTION"
+        action="NO_ACTION"
+        reason="No action required"
 
-
+    decision["t_id"]=transaction_id
+    if event_type == "CHECKOUT_ABANDONED":
+        decision["amount"] = transaction_details["cart_value"]
+    else:
+        decision["amount"] = transaction_details["amount"]
     decision["action"] = action
     priority = decide_priority(risk_result, customer_result)
     decision["priority"]=priority
     decision["reason"]=reason
+    decision["recoverability"]=recoverability
+    decision["customer_value"]=customer_value
+    decision["customer_type"]=customer_result["type"]
 
     return decision
 
-decision = decide_recovery_action(
-    risk_result,
-    customer_result,
-    transaction_details
-)
 
-print(decision)
+
+# decision = get_decision(3658, 3)
+# print(decision)
