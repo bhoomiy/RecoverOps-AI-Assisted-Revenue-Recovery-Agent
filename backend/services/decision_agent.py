@@ -2,10 +2,6 @@ from services.risk_detector import detect_revenue_risk
 from services.customer_analyzer import analyze_customer
 import sqlite3
 
-# Choose a transaction to test
-transaction_id = 3658
-customer_id = 3
-
 
 #get transaction details
 DB_NAME=r"C:\Users\RADHAGOPINATH\recovery_revenue.db"
@@ -61,6 +57,7 @@ def decide_recovery_action(risk_result, customer_result,transaction_details):
     decision = {}
 
     #extract details
+    transaction_id=transaction_details["transac_id"]
     event_type = transaction_details["event_type"]
     failure_reason = transaction_details["failure_reason"]
     customer_value = customer_result["customer_value"]

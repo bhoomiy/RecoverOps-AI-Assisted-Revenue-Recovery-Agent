@@ -1,26 +1,6 @@
 from services.decision_agent import get_decision
 import random
-
-'''expected output
-transaction_id
-action_taken
-simulation_result
-success = True/False
-original_revenue_at_risk
-revenue_recovered
-revenue_lost
-reason'''
-
-decision_result = get_decision(3658, 3)
-
-#extract details
-action=decision_result["action"]
-transaction_id=decision_result["t_id"]
-original_revenue=decision_result["amount"]
-recoverability=decision_result["recoverability"]
-customer_value=decision_result["customer_value"]
-customer_type=decision_result["customer_type"]
-
+from services.recovery_tracker import track_recovery
 
 def recovery_simulator(transaction_id,action,original_revenue,recoverability,customer_value,customer_type):
     result={}
@@ -186,23 +166,20 @@ def recovery_simulator(transaction_id,action,original_revenue,recoverability,cus
             result["revenue_recovered"] = 0
             result["revenue_lost"] = original_revenue
             result["reason"] = "Customer is simulated to not complete the purchase using an alternative payment method."
-        
 
+    elif action == "NO_ACTION":
+        result["simulation_result"] = "NO_RECOVERY_ATTEMPTED"
+        result["success"] = False
+        result["revenue_recovered"] = 0
+        result["revenue_lost"] = original_revenue
+        result["reason"] = "Agent decided that no recovery action should be attempted for this transaction."  
+
+    else:
+        raise ValueError(f"Unsupported recovery action: {action}")
 
     result["transaction_id"]=transaction_id
-    result["action_taken"]=decision_result["action"]
+    result["action_taken"]=action
     result["original_revenue_at_risk"]=original_revenue
 
+    track_recovery(result)
     return result
-
-#dry run
-simulation_result = recovery_simulator(
-    transaction_id,
-    action,
-    original_revenue,
-    recoverability,
-    customer_value,
-    customer_type
-)
-
-print(simulation_result)
