@@ -1,0 +1,7 @@
+import { Activity, Bot, CircleCheckBig, Cpu } from 'lucide-react'
+import PageHeader from '../components/ui/PageHeader'
+import MetricCard from '../components/dashboard/MetricCard'
+import Card from '../components/ui/Card'
+import { agentActivity } from '../data/mockAgentActivity'
+
+export default function AgentActivity(){return <><PageHeader title="Agent Activity" subtitle="Real-time visibility into revenue recovery agent decisions and actions."/><div className="metric-grid"><MetricCard label="Agent Status" value="Operational" detail="Live" icon={Bot} accent="green"/><MetricCard label="Events Processed" value="1,374" detail="8.2%" icon={Cpu} accent="blue"/><MetricCard label="Recovery Actions" value="386" detail="6.4%" icon={Activity} accent="violet"/><MetricCard label="Successful Recoveries" value="128" detail="9.8%" icon={CircleCheckBig} accent="green"/></div><Card className="log-card"><div className="section-title-row"><div><h3>Agent Event Stream</h3><p>Live execution trace across all recovery modules</p></div><div className="filter-pills"><button className="active">All Activity</button><button>Decisions</button><button>Recovery</button></div></div><div className="log-stream">{[...agentActivity,...agentActivity].map((a,i)=><div className="log-row" key={i}><time>{a.time}</time><span className="log-dot"/><div><strong>{a.module}</strong><h4>{a.title}</h4><p>{a.detail}</p></div><span className="log-status">Processed</span></div>)}</div></Card></>}
