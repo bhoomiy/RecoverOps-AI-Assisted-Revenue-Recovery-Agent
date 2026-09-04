@@ -20,7 +20,11 @@ export default function TransactionTable({ rows }) {
               <td><strong>{formatCurrency(t.amount, 2)}</strong></td>
               <td>{t.failureReason ? labelize(t.failureReason) : '—'}</td>
               <td>{t.riskLevel ? <Badge value={t.riskLevel}/> : '—'}</td>
-              <td><Badge value={t.status}/></td>
+              <td>
+                {t.recoveryStatus
+                  ? <Badge value={t.recoveryStatus} />
+                  : '—'}
+              </td>
               <td className="muted-cell">{formatDate(t.timestamp)}</td>
               <td><ChevronRight size={16}/></td>
             </tr>

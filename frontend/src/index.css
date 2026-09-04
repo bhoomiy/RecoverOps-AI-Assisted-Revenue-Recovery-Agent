@@ -98,3 +98,108 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{ou
 .mobile-menu,.mobile-sidebar,.mobile-overlay{display:none}
 @media(max-width:1100px){.metric-grid{grid-template-columns:repeat(2,1fr)}.dashboard-grid{grid-template-columns:1fr}.dashboard-hero{grid-template-columns:1fr}.hero-score-card{justify-self:start}.recovery-board{grid-template-columns:repeat(4,260px)}.activity-row{grid-template-columns:60px 1fr .8fr 70px 1fr 75px}.activity-action{display:none}.intel-grid,.analytics-grid{grid-template-columns:1fr}}
 @media(max-width:760px){.desktop-sidebar{display:none}.mobile-menu{display:grid}.mobile-sidebar{display:block;position:fixed;left:-250px;top:0;z-index:50;transition:.2s}.mobile-sidebar.show{left:0}.mobile-overlay{display:block;position:fixed;inset:0;background:#2d2026aa;z-index:40;opacity:0;pointer-events:none}.mobile-overlay.show{opacity:1;pointer-events:auto}.page-content{padding:20px 13px}.topbar{padding:0 14px}.workspace-note{display:none}.metric-grid{grid-template-columns:1fr}.page-heading{flex-direction:column;gap:12px}.dashboard-hero{padding:22px 18px;border-radius:18px}.hero-copy h2{font-size:26px}.hero-score-card{width:100%}.activity-row{grid-template-columns:55px 1fr 75px}.activity-row>:nth-child(4),.activity-row>:nth-child(5),.activity-row>:nth-child(6){display:none}.intel-grid,.settings-grid{grid-template-columns:1fr}.pipeline{align-items:stretch}.pipeline-piece{flex-direction:column}.pipeline-line{width:1px;height:24px;min-width:1px;min-height:24px}.timeline-item{grid-template-columns:28px 54px 1fr}.timeline-item small{display:none}.analytics-grid.one-small{grid-template-columns:1fr}.transaction-hero{align-items:flex-start;gap:12px}.transaction-hero>strong{font-size:18px}.recovery-board{grid-template-columns:repeat(4,240px)}}
+
+/* Custom recovery status dropdown */
+.recovery-dropdown {
+  position: relative;
+}
+
+.recovery-dropdown-trigger {
+  height: 35px;
+  min-width: 125px;
+  padding: 0 11px;
+  border-radius: 10px;
+  border: 1px solid #dfd0cc;
+  font-size: 9px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  background: white;
+}
+
+/* Dropdown menu */
+
+.recovery-dropdown-menu {
+  position: absolute;
+  top: 41px;
+  left: 0;
+
+  width: 145px;
+
+  background: #fffaf8;
+  border: 1px solid #eadeda;
+  border-radius: 12px;
+
+  padding: 6px;
+
+  box-shadow: 0 12px 28px rgba(82, 50, 60, 0.15);
+
+  z-index: 999;
+}
+
+/* Every option */
+
+.recovery-dropdown-option {
+  width: 100%;
+  height: 34px;
+
+  border: none;
+  border-radius: 8px;
+
+  margin: 2px 0;
+  padding: 0 10px;
+
+  text-align: left;
+
+  font-size: 9px;
+  font-weight: 600;
+}
+
+
+/* Default */
+
+.recovery-neutral {
+  background: #fff;
+  color: #7f7075;
+}
+
+
+/* Recovered */
+
+.recovery-green {
+  background: #e4eee7 !important;
+  color: #557c62 !important;
+}
+
+
+/* Pending */
+
+.recovery-amber {
+  background: #f5ead9 !important;
+  color: #996f3d !important;
+}
+
+
+/* Failed */
+
+.recovery-red {
+  background: #f3dfe3 !important;
+  color: #9b4d5b !important;
+}
+
+
+/* Hover */
+
+.recovery-dropdown-option:hover {
+  transform: translateX(2px);
+}
+
+
+/* Arrow */
+
+.recovery-chevron {
+  font-size: 7px;
+  opacity: 0.7;
+}

@@ -13,6 +13,7 @@ export const api = {
   dashboard: () => apiRequest('/api/dashboard'),
   transactions: () => apiRequest('/api/transactions'),
   transaction: (id) => apiRequest(`/api/transactions/${id}`),
+  customers: () => apiRequest('/api/customers'),
   recoveries: () => apiRequest('/api/recoveries'),
   analytics: () => apiRequest('/api/analytics'),
   activity: () => apiRequest('/api/agent-activity'),

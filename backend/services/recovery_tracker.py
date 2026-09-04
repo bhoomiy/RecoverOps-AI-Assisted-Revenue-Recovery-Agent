@@ -59,8 +59,12 @@ def track_recovery(simulation_result):
         datetime.now().isoformat()
     ))
 
+    inserted = cursor.rowcount > 0
+
     conn.commit()
     conn.close()
+
+    return inserted
 
 if __name__ == "__main__":
     create_recovery_table()
