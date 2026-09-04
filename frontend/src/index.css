@@ -203,3 +203,102 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{ou
   font-size: 7px;
   opacity: 0.7;
 }
+
+.recovery-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.recovery-column {
+  display: flex;
+  flex-direction: column;
+  height: 680px;
+  overflow: hidden;
+}
+
+.recovery-column > header {
+  flex-shrink: 0;
+}
+
+.recovery-column-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.recovery-column-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.recovery-column-content::-webkit-scrollbar-thumb {
+  background: rgba(80, 55, 60, 0.18);
+  border-radius: 999px;
+}
+
+.recovery-column-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.recovery-empty {
+  height: 100%;
+  min-height: 180px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.execute-recovery-button {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 12px;
+
+  border: none;
+  border-radius: 10px;
+
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.execute-recovery-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.recovery-error {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.recovery-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 1000px) {
+  .recovery-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 650px) {
+  .recovery-metric-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chart-period {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #f6ebe8;
+  color: #9b7378;
+  font-size: 12px;
+  font-weight: 600;
+}

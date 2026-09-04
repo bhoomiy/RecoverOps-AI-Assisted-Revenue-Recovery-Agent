@@ -7,7 +7,9 @@ export default function RevenueOverviewChart() {
     <Card className="chart-card large-chart">
       <div className="section-title-row">
         <div><span className="section-kicker">30 day movement</span><h3>Revenue Recovery Overview</h3><p>At-risk revenue compared with what the agent recovered.</p></div>
-        <div className="segmented"><button>7D</button><button className="active">30D</button><button>90D</button></div>
+        <span className="chart-period">
+  Last 30 days
+</span>
       </div>
       <div className="chart-legend-inline"><span><i className="dot-risk"/>At risk</span><span><i className="dot-recovered"/>Recovered</span><span><i className="dot-lost"/>Lost</span></div>
       <div className="chart-wrap">

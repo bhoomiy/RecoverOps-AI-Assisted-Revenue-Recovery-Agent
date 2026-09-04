@@ -9,6 +9,8 @@ export async function apiRequest(path, options = {}) {
   return response.json()
 }
 
+
+
 export const api = {
   dashboard: () => apiRequest('/api/dashboard'),
   transactions: () => apiRequest('/api/transactions'),
@@ -17,5 +19,9 @@ export const api = {
   recoveries: () => apiRequest('/api/recoveries'),
   analytics: () => apiRequest('/api/analytics'),
   activity: () => apiRequest('/api/agent-activity'),
+  executeRecovery: (id) =>
+  apiRequest(`/api/recovery/${id}/execute`, {
+    method: 'POST'
+  }),
   processEvent: (payload) => apiRequest('/api/events', { method: 'POST', body: JSON.stringify(payload) }),
 }
