@@ -10,11 +10,12 @@ from services.recovery_simulator import recovery_simulator
 from services.llm_service import generate_recovery_content
 from services.recovery_tracker import track_recovery
 from services.batch_processor import process_batch
+import os
 
 
 app=Flask(__name__)
 CORS(app)
-DB_NAME=r"C:\Users\RADHAGOPINATH\recovery_revenue.db"
+from config import DB_NAME
 
 def create_indexes():
     conn = sqlite3.connect(DB_NAME)

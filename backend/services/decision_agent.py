@@ -4,8 +4,7 @@ import sqlite3
 
 
 #get transaction details
-DB_NAME=r"C:\Users\RADHAGOPINATH\recovery_revenue.db"
-
+from config import DB_NAME
 
 def get_decision(transaction_id, customer_id):
     # Call Risk Detector

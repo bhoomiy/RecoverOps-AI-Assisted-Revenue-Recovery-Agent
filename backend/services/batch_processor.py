@@ -7,7 +7,7 @@ from services.decision_agent import get_decision
 from services.recovery_simulator import recovery_simulator
 
 
-DB_NAME = r"C:\Users\RADHAGOPINATH\recovery_revenue.db"
+from config import DB_NAME
 
 
 def process_batch(limit=30):

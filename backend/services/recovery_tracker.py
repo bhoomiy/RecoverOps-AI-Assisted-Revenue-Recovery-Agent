@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
 
-DB_NAME = r"C:\Users\RADHAGOPINATH\recovery_revenue.db"
+from config import DB_NAME
 
 
 def create_recovery_table():

@@ -1,7 +1,7 @@
 import pandas as pd 
 import sqlite3
 
-DB_NAME = r"C:\Users\RADHAGOPINATH\recovery_revenue.db"
+from config import DB_NAME
 conn=sqlite3.connect(DB_NAME)
 cursor=conn.cursor()
 

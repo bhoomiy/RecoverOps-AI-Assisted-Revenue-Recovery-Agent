@@ -2,7 +2,7 @@ import pandas as pd
 import sqlite3
 
 #get customer data
-DB_NAME=r"C:\Users\RADHAGOPINATH\recovery_revenue.db"
+from config import DB_NAME
 conn=sqlite3.connect(DB_NAME)
 cursor=conn.cursor()
 cursor.execute("select * from customer")
