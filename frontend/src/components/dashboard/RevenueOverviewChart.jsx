@@ -1,8 +1,7 @@
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import Card from '../ui/Card'
-import { revenueTrend } from '../../data/mockAnalytics'
 
-export default function RevenueOverviewChart() {
+export default function RevenueOverviewChart({data = []}) {
   return (
     <Card className="chart-card large-chart">
       <div className="section-title-row">
@@ -14,7 +13,7 @@ export default function RevenueOverviewChart() {
       <div className="chart-legend-inline"><span><i className="dot-risk"/>At risk</span><span><i className="dot-recovered"/>Recovered</span><span><i className="dot-lost"/>Lost</span></div>
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={revenueTrend}>
+          <AreaChart data={data}>
             <defs>
               <linearGradient id="riskRose" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#b86f86" stopOpacity={0.28}/><stop offset="100%" stopColor="#b86f86" stopOpacity={0}/></linearGradient>
               <linearGradient id="recoveredSage" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#6d9279" stopOpacity={0.20}/><stop offset="100%" stopColor="#6d9279" stopOpacity={0}/></linearGradient>

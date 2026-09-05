@@ -31,5 +31,7 @@ export const api = {
   apiRequest(`/api/transactions/${id}/ai`, {
     method: 'POST'
   }),
+  settings: () =>
+  apiRequest('/api/settings'),
   processEvent: (payload) => apiRequest('/api/events', { method: 'POST', body: JSON.stringify(payload) }),
 }

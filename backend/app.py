@@ -2,6 +2,7 @@ from flask import Flask,request,jsonify
 from flask_cors import CORS
 import sqlite3
 import numpy as np
+from datetime import datetime
 from services.customer_analyzer import analyze_customer
 from services.risk_detector import detect_revenue_risk
 from services.decision_agent import get_decision
@@ -905,6 +906,597 @@ def generate_transaction_ai(transaction_id):
 
     except Exception as e:
         print("AI GENERATION ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+@app.route("/api/analytics", methods=["GET"])
+def get_analytics():
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # =====================================================
+        # 1. TOTAL REVENUE AT RISK
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                SUM(
+                    CASE
+                        WHEN event_type = 'PAYMENT_FAILED'
+                            THEN COALESCE(amount, 0)
+
+                        WHEN event_type = 'CHECKOUT_ABANDONED'
+                            THEN COALESCE(cart_value, 0)
+
+                        ELSE 0
+                    END
+                ) AS total_revenue_at_risk
+            FROM transactions
+            WHERE event_type IN (
+                'PAYMENT_FAILED',
+                'CHECKOUT_ABANDONED'
+            )
+        """)
+
+        total_revenue_at_risk = (
+            cursor.fetchone()["total_revenue_at_risk"] or 0
+        )
+
+        # =====================================================
+        # 2. RECOVERY METRICS
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                COUNT(*) AS total_attempts,
+
+                SUM(
+                    CASE
+                        WHEN success = 1 THEN 1
+                        ELSE 0
+                    END
+                ) AS successful_attempts,
+
+                SUM(
+                    COALESCE(revenue_recovered, 0)
+                ) AS revenue_recovered,
+
+                SUM(
+                    COALESCE(revenue_lost, 0)
+                ) AS revenue_lost
+
+            FROM recovery_tracking
+            WHERE action_taken != 'NO_ACTION'
+        """)
+
+        recovery_row = cursor.fetchone()
+
+        total_attempts = recovery_row["total_attempts"] or 0
+        successful_attempts = (
+            recovery_row["successful_attempts"] or 0
+        )
+
+        revenue_recovered = (
+            recovery_row["revenue_recovered"] or 0
+        )
+
+        revenue_lost = (
+            recovery_row["revenue_lost"] or 0
+        )
+
+        recovery_rate = (
+            (successful_attempts / total_attempts) * 100
+            if total_attempts > 0
+            else 0
+        )
+
+        # =====================================================
+        # 3. SUCCESS RATE BY PAYMENT FAILURE REASON
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                t.failure_reason,
+
+                COUNT(r.transaction_id) AS attempts,
+
+                SUM(
+                    CASE
+                        WHEN r.success = 1 THEN 1
+                        ELSE 0
+                    END
+                ) AS successful
+
+            FROM transactions t
+
+            LEFT JOIN recovery_tracking r
+                ON t.transac_id = r.transaction_id
+
+            WHERE
+                t.event_type = 'PAYMENT_FAILED'
+                AND t.failure_reason IS NOT NULL
+
+            GROUP BY t.failure_reason
+        """)
+
+        failure_reasons = []
+
+        for row in cursor.fetchall():
+
+            attempts = row["attempts"] or 0
+            successful = row["successful"] or 0
+
+            success_rate = (
+                (successful / attempts) * 100
+                if attempts > 0
+                else 0
+            )
+
+            failure_reasons.append({
+                "name": row["failure_reason"],
+                "success": round(success_rate, 1),
+                "attempts": attempts,
+                "successful": successful
+            })
+
+        # =====================================================
+        # 4. SUCCESS RATE BY RECOVERY ACTION
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                action_taken,
+
+                COUNT(*) AS attempts,
+
+                SUM(
+                    CASE
+                        WHEN success = 1 THEN 1
+                        ELSE 0
+                    END
+                ) AS successful
+
+            FROM recovery_tracking
+
+            WHERE
+            action_taken IS NOT NULL
+            AND action_taken != 'NO_ACTION'
+
+            GROUP BY action_taken
+        """)
+
+        action_success = []
+
+        for row in cursor.fetchall():
+
+            attempts = row["attempts"] or 0
+            successful = row["successful"] or 0
+
+            success_rate = (
+                (successful / attempts) * 100
+                if attempts > 0
+                else 0
+            )
+
+            action_success.append({
+                "name": row["action_taken"],
+                "value": round(success_rate, 1),
+                "attempts": attempts,
+                "successful": successful
+            })
+
+        # =====================================================
+        # 5. RISK DISTRIBUTION
+        # =====================================================
+
+        cursor.execute("""
+            SELECT transac_id
+            FROM transactions
+            WHERE event_type IN (
+                'PAYMENT_FAILED',
+                'CHECKOUT_ABANDONED'
+            )
+        """)
+
+        risky_transactions = cursor.fetchall()
+
+        risk_counts = {
+            "HIGH": 0,
+            "MEDIUM": 0,
+            "LOW": 0
+        }
+
+        for row in risky_transactions:
+
+            risk_result = detect_revenue_risk(
+                row["transac_id"]
+            )
+
+            level = risk_result.get("risk_level")
+
+            if level in risk_counts:
+                risk_counts[level] += 1
+
+        risk_total = sum(risk_counts.values())
+
+        risk_distribution = []
+
+        for level in ["HIGH", "MEDIUM", "LOW"]:
+            count = risk_counts[level]
+
+            percentage = (
+                (count / risk_total) * 100
+                if risk_total > 0
+                else 0
+            )
+
+            risk_distribution.append({
+                "name": level.title(),
+                "value": round(percentage, 1),
+                "count": count
+            })
+
+        # =====================================================
+        # 6. LAST 30 DAYS REVENUE TREND
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                DATE(t.timestamp) AS date,
+
+                SUM(
+                    CASE
+                        WHEN t.event_type = 'PAYMENT_FAILED'
+                            THEN COALESCE(t.amount, 0)
+
+                        WHEN t.event_type = 'CHECKOUT_ABANDONED'
+                            THEN COALESCE(t.cart_value, 0)
+
+                        ELSE 0
+                    END
+                ) AS revenue_at_risk,
+
+                SUM(
+                    COALESCE(r.revenue_recovered, 0)
+                ) AS revenue_recovered,
+
+                SUM(
+                    COALESCE(r.revenue_lost, 0)
+                ) AS revenue_lost
+
+            FROM transactions t
+
+            LEFT JOIN recovery_tracking r
+                ON t.transac_id = r.transaction_id
+
+            WHERE
+                t.event_type IN (
+                    'PAYMENT_FAILED',
+                    'CHECKOUT_ABANDONED'
+                )
+
+                AND DATE(t.timestamp) >= DATE(
+                    'now',
+                    '-29 days'
+                )
+
+            GROUP BY DATE(t.timestamp)
+
+            ORDER BY DATE(t.timestamp)
+        """)
+
+        revenue_trend = []
+
+        for row in cursor.fetchall():
+
+            raw_date = row["date"]
+
+            formatted_date = raw_date
+
+            try:
+                formatted_date = datetime.strptime(
+                    raw_date,
+                    "%Y-%m-%d"
+                ).strftime("%b %d")
+            except Exception:
+                pass
+
+            revenue_trend.append({
+                "name": formatted_date,
+                "risk": row["revenue_at_risk"] or 0,
+                "recovered": row["revenue_recovered"] or 0,
+                "lost": row["revenue_lost"] or 0
+            })
+
+        conn.close()
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
+
+        return jsonify(
+            make_json_serializable({
+                "metrics": {
+                    "total_revenue_at_risk":
+                        total_revenue_at_risk,
+
+                    "revenue_recovered":
+                        revenue_recovered,
+
+                    "revenue_lost":
+                        revenue_lost,
+
+                    "recovery_rate":
+                        round(recovery_rate, 1),
+
+                    "total_attempts":
+                        total_attempts,
+
+                    "successful_attempts":
+                        successful_attempts
+                },
+
+                "revenue_trend":
+                    revenue_trend,
+
+                "failure_reasons":
+                    failure_reasons,
+
+                "action_success":
+                    action_success,
+
+                "risk_distribution":
+                    risk_distribution,
+
+                "risk_total":
+                    risk_total
+            })
+        )
+    except Exception as e:
+
+        print("ANALYTICS ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+@app.route("/api/agent-activity", methods=["GET"])
+def get_agent_activity():
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # =====================================================
+        # 1. EVENTS PROCESSED
+        # =====================================================
+
+        cursor.execute("""
+            SELECT COUNT(*) AS count
+            FROM transactions
+            WHERE event_type IN (
+                'PAYMENT_FAILED',
+                'CHECKOUT_ABANDONED'
+            )
+        """)
+
+        events_processed = cursor.fetchone()["count"] or 0
+
+
+        # =====================================================
+        # 2. RECOVERY ACTIONS
+        # =====================================================
+
+        cursor.execute("""
+            SELECT COUNT(*) AS count
+            FROM recovery_tracking
+            WHERE
+                action_taken IS NOT NULL
+                AND action_taken != 'NO_ACTION'
+        """)
+
+        recovery_actions = cursor.fetchone()["count"] or 0
+
+
+        # =====================================================
+        # 3. SUCCESSFUL RECOVERIES
+        # =====================================================
+
+        cursor.execute("""
+            SELECT COUNT(*) AS count
+            FROM recovery_tracking
+            WHERE
+                success = 1
+                AND action_taken != 'NO_ACTION'
+        """)
+
+        successful_recoveries = cursor.fetchone()["count"] or 0
+
+
+        # =====================================================
+        # 4. RECENT ACTIVITY
+        # =====================================================
+
+        cursor.execute("""
+            SELECT
+                r.transaction_id,
+                r.action_taken,
+                r.success,
+                r.simulation_result,
+                r.reason,
+                r.revenue_recovered,
+                r.revenue_lost,
+                r.timestamp,
+                t.event_type,
+                t.failure_reason,
+                t.customer_id
+
+            FROM recovery_tracking r
+
+            JOIN transactions t
+                ON r.transaction_id = t.transac_id
+
+            ORDER BY r.timestamp DESC
+
+            LIMIT 50
+        """)
+
+        rows = cursor.fetchall()
+
+        activity = []
+
+        for row in rows:
+
+            action = row["action_taken"]
+
+            if action == "NO_ACTION":
+                module = "Decision Agent"
+
+                title = "No Recovery Action Required"
+
+                detail = (
+                    f"Transaction #{row['transaction_id']} "
+                    f"was evaluated and no recovery action was selected."
+                )
+
+                activity_type = "DECISION"
+
+            elif row["success"] == 1:
+                module = "Recovery Simulator"
+
+                title = "Recovery Successful"
+
+                detail = (
+                    f"{action} recovered "
+                    f"₹{row['revenue_recovered'] or 0:,.2f} "
+                    f"for transaction #{row['transaction_id']}."
+                )
+
+                activity_type = "RECOVERY"
+
+            else:
+                module = "Recovery Simulator"
+
+                title = "Recovery Attempt Failed"
+
+                detail = (
+                    f"{action} was attempted for "
+                    f"transaction #{row['transaction_id']}. "
+                    f"{row['reason'] or ''}"
+                )
+
+                activity_type = "RECOVERY"
+
+            activity.append({
+                "transaction_id":
+                    row["transaction_id"],
+
+                "customer_id":
+                    row["customer_id"],
+
+                "time":
+                    row["timestamp"],
+
+                "module":
+                    module,
+
+                "title":
+                    title,
+
+                "detail":
+                    detail,
+
+                "status":
+                    (
+                        "SUCCESS"
+                        if row["success"] == 1
+                        else "FAILED"
+                        if row["success"] == 0
+                        else "PROCESSED"
+                    ),
+
+                "activity_type":
+                    activity_type,
+
+                "action":
+                    action,
+
+                "event_type":
+                    row["event_type"],
+
+                "failure_reason":
+                    row["failure_reason"],
+
+                "simulation_result":
+                    row["simulation_result"]
+            })
+
+
+        conn.close()
+
+
+        return jsonify(
+            make_json_serializable({
+                "metrics": {
+                    "agent_status":
+                        "Operational",
+
+                    "events_processed":
+                        events_processed,
+
+                    "recovery_actions":
+                        recovery_actions,
+
+                    "successful_recoveries":
+                        successful_recoveries
+                },
+
+                "activity":
+                    activity
+            })
+        )
+
+    except Exception as e:
+
+        print("AGENT ACTIVITY ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+@app.route("/api/settings", methods=["GET"])
+def get_settings():
+    try:
+        return jsonify({
+            "agent": {
+                "status": "Operational",
+                "execution_mode": "On-demand",
+                "recovery_mode": "Simulation"
+            },
+
+            "risk_thresholds": {
+                "low": 5000,
+                "high": 15000
+            },
+
+            "simulation": {
+                "returning_customer_rules": True,
+                "tracking": "Recovery outcomes"
+            },
+
+            "ai": {
+                "enabled": True,
+                "generation_mode": "On-demand",
+                "provider": "Groq"
+            }
+        })
+
+    except Exception as e:
+        print("SETTINGS ERROR:", e)
 
         return jsonify({
             "error": str(e)
