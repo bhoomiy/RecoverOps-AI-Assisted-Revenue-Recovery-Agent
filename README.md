@@ -259,6 +259,8 @@ Revenue-recovery-agent/
 │
 ├── backend/
 │   ├── app.py
+│   ├── config.py
+│   ├── recovery_revenue.db
 │   │
 │   ├── services/
 │   │   ├── risk_detector.py
@@ -269,6 +271,7 @@ Revenue-recovery-agent/
 │   │   ├── batch_processor.py
 │   │   └── llm_service.py
 │   │
+│   ├── generate_data.py
 │   └── .env
 │
 ├── frontend/
@@ -276,13 +279,28 @@ Revenue-recovery-agent/
 │   │   ├── components/
 │   │   ├── pages/
 │   │   ├── services/
-│   │   └── utils/
+│   │   ├── utils/
+│   │   └── main.jsx
 │   │
-│   └── package.json
+│   ├── package.json
+│   └── vite.config.js
 │
+├── .gitignore
 └── README.md
 ```
 
+### Database Configuration
+
+Database configuration is centralized in `backend/config.py`:
+
+```python
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_NAME = os.path.join(BASE_DIR, "recovery_revenue.db")
+```
+
+This keeps the database path portable and avoids machine-specific absolute paths.
 ---
 
 ## API Endpoints
