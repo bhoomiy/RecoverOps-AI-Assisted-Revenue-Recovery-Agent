@@ -16,7 +16,10 @@ def generate_recovery_content(decision_result):
 
     action = decision_result.get("action")
     reason = decision_result.get("reason")
-    amount_at_risk = decision_result.get("amount_at_risk", 0)
+    amount_at_risk = decision_result.get(
+        "amount",
+        decision_result.get("amount_at_risk", 0)
+    )
     customer_type = decision_result.get("customer_type")
     customer_value = decision_result.get("customer_value")
     priority = decision_result.get("priority")
@@ -28,9 +31,10 @@ You are an AI assistant for a revenue recovery system.
 A deterministic recovery agent has already decided what action should be taken.
 DO NOT change or override the recovery action.
 
-Your job is only to generate a short, professional and customer-friendly recovery message.
-- Do not mention links, buttons, URLs, phone numbers, or contact details unless they are explicitly provided.
-- Do not assume the customer has a subscription, membership, recurring plan, or account status unless explicitly provided.
+Your job has two parts:
+
+1. Explain internally why the deterministic agent selected this action.
+2. Generate a short, professional and customer-friendly recovery message.
 
 Recovery information:
 
@@ -42,27 +46,40 @@ Customer value: {customer_value}
 Priority: {priority}
 Recoverability: {recoverability}
 
-Generate a response in VALID JSON only.
 
-Use this exact structure:
+Generate a response using the JSON structure defined by the response schema.
 
-{{
-    "subject": "short message subject",
-    "message": "customer-facing recovery message",
-    "tone": "professional",
-    "recommended_channel": "EMAIL"
-}}
+The response must contain:
+- explanation
+- key_factors
+- subject
+- message
+- tone
+- recommended_channel
 
 Rules:
+
+INTERNAL EXPLANATION:
+- The explanation is for an internal operator, not the customer.
+- Explain the decision that has already been made.
+- Do not recommend a different recovery action.
+- You may mention customer type, customer value, priority and recoverability.
+- Keep the explanation concise.
+- key_factors must contain exactly 3 short factors.
+
+CUSTOMER MESSAGE:
 - Do not mention internal terms such as recoverability, customer value, risk score or priority.
 - Do not blame the customer.
+- Do not invent links, buttons, URLs, phone numbers, contact details, login instructions or navigation steps.
+- Do not assume the customer has an account, subscription, membership, recurring plan or ongoing service.
+- Do not mention keeping an account active, continuing services, service interruption or any consequence that was not explicitly provided.
+- Only use facts present in the Recovery information above.
 - Keep the message concise.
 - Do not invent discounts or offers.
 - Do not change the recovery action.
-- If payment failed, explain the issue politely.
-- Give the customer a clear next step.
+- If payment failed, explain the provided failure reason politely.
+- Give a general next step consistent with the selected recovery action without inventing how or where the customer should perform it.
 """
-
     try:
         response = client.chat.completions.create(
             model="openai/gpt-oss-20b",
@@ -71,7 +88,7 @@ Rules:
                 {
                     "role": "system",
                     "content": (
-                        "You generate concise customer-facing revenue recovery messages. "
+                        "You generate structured JSON for a revenue recovery system. "
                         "The recovery action has already been decided by another system. "
                         "Never change or override that action."
                     )
@@ -89,26 +106,45 @@ Rules:
                     "strict": True,
                     "schema": {
                         "type": "object",
+
                         "properties": {
+                            "explanation": {
+                                "type": "string"
+                            },
+
+                            "key_factors": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+
                             "subject": {
                                 "type": "string"
                             },
+
                             "message": {
                                 "type": "string"
                             },
+
                             "tone": {
                                 "type": "string"
                             },
+
                             "recommended_channel": {
                                 "type": "string"
                             }
                         },
+
                         "required": [
+                            "explanation",
+                            "key_factors",
                             "subject",
                             "message",
                             "tone",
                             "recommended_channel"
                         ],
+
                         "additionalProperties": False
                     }
                 }
@@ -117,13 +153,21 @@ Rules:
             temperature=0.3,
             max_tokens=600
         )
-
         generated_text = response.choices[0].message.content
 
         return json.loads(generated_text)
 
     except json.JSONDecodeError:
         return {
+            "explanation": (
+                "The AI explanation could not be parsed, "
+                "but the deterministic recovery decision remains unchanged."
+            ),
+            "key_factors": [
+                action or "Recovery action selected",
+                customer_type or "Customer context available",
+                recoverability or "Recoverability evaluated"
+            ],
             "subject": "Payment Update Required",
             "message": generated_text,
             "tone": "professional",

@@ -8,6 +8,8 @@ from services.decision_agent import get_decision
 from services.recovery_simulator import recovery_simulator
 from services.llm_service import generate_recovery_content
 from services.recovery_tracker import track_recovery
+from services.batch_processor import process_batch
+
 
 app=Flask(__name__)
 CORS(app)
@@ -788,6 +790,121 @@ def get_dashboard():
 
     except Exception as e:
         print("DASHBOARD ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+@app.route("/api/recovery/batch", methods=["POST"])
+def run_batch_recovery():
+
+    try:
+
+        results = process_batch(30)
+
+        attempted = [
+            result
+            for result in results
+            if not result.get("skipped")
+        ]
+
+        no_action = [
+            result
+            for result in results
+            if result.get("skipped")
+        ]
+
+        successful = sum(
+            1
+            for result in attempted
+            if result["success"]
+        )
+
+        failed = sum(
+            1
+            for result in attempted
+            if not result["success"]
+        )
+
+        revenue_recovered = sum(
+            result["revenue_recovered"]
+            for result in attempted
+        )
+
+        return jsonify(
+            make_json_serializable({
+                "message": "Batch recovery completed",
+
+                "evaluated": len(results),
+
+                "attempted": len(attempted),
+
+                "no_action": len(no_action),
+
+                "successful": successful,
+
+                "failed": failed,
+
+                "revenue_recovered":
+                    revenue_recovered,
+
+                "results": results
+            })
+        )
+
+    except Exception as e:
+
+        print(
+            "BATCH RECOVERY ERROR:",
+            e
+        )
+
+        return jsonify({
+            "error": str(e)
+        }), 500
+
+@app.route("/api/transactions/<int:transaction_id>/ai",methods=["POST"])
+def generate_transaction_ai(transaction_id):
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT customer_id
+            FROM transactions
+            WHERE transac_id = ?
+        """, (transaction_id,))
+
+        transaction = cursor.fetchone()
+
+        conn.close()
+
+        if not transaction:
+            return jsonify({
+                "error": "Transaction not found"
+            }), 404
+
+        customer_id = transaction["customer_id"]
+
+        decision_result = get_decision(
+            transaction_id,
+            customer_id
+        )
+
+        generated_content = generate_recovery_content(
+            decision_result
+        )
+
+        return jsonify(
+            make_json_serializable({
+                "transaction_id": transaction_id,
+                "generated_content": generated_content
+            })
+        )
+
+    except Exception as e:
+        print("AI GENERATION ERROR:", e)
 
         return jsonify({
             "error": str(e)

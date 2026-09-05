@@ -23,5 +23,13 @@ export const api = {
   apiRequest(`/api/recovery/${id}/execute`, {
     method: 'POST'
   }),
+  batchRecovery: () =>
+  apiRequest('/api/recovery/batch', {
+    method: 'POST'
+  }),
+  generateTransactionAI: (id) =>
+  apiRequest(`/api/transactions/${id}/ai`, {
+    method: 'POST'
+  }),
   processEvent: (payload) => apiRequest('/api/events', { method: 'POST', body: JSON.stringify(payload) }),
 }

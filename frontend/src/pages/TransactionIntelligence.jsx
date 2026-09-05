@@ -25,6 +25,9 @@ export default function TransactionIntelligence() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [aiData, setAiData] = useState(null)
+const [aiLoading, setAiLoading] = useState(false)
+const [aiError, setAiError] = useState('')
 
   useEffect(() => {
     async function loadTransaction() {
@@ -45,7 +48,25 @@ export default function TransactionIntelligence() {
 
     loadTransaction()
   }, [id])
+async function handleGenerateAI() {
+  try {
+    setAiLoading(true)
+    setAiError('')
 
+    const result = await api.generateTransactionAI(id)
+
+    if (result.generated_content?.error) {
+      throw new Error(result.generated_content.message)
+    }
+
+    setAiData(result.generated_content)
+  } catch (err) {
+    console.error(err)
+    setAiError('Failed to generate AI insight.')
+  } finally {
+    setAiLoading(false)
+  }
+}
   if (loading) {
     return (
       <div className="page-state">
@@ -148,7 +169,91 @@ export default function TransactionIntelligence() {
 
         <RecoveryResultCard data={recovery} />
       </div>
+        <div className="ai-intelligence-panel">
+  <div className="ai-intelligence-header">
+    <div>
+      <span className="eyebrow">GROQ AI ASSISTANT</span>
+      <h3>Recovery Explanation</h3>
+      <p>
+        Generate an AI explanation and customer-facing recovery message
+        based on the agent's decision.
+      </p>
+    </div>
 
+    <button
+      className="secondary-button"
+      onClick={handleGenerateAI}
+      disabled={aiLoading}
+    >
+      {aiLoading
+        ? 'Generating...'
+        : aiData
+        ? 'Regenerate Insight'
+        : 'Generate AI Insight'}
+    </button>
+  </div>
+
+  {aiError && (
+    <div className="ai-error">
+      {aiError}
+    </div>
+  )}
+
+  {!aiData && !aiLoading && (
+    <div className="ai-placeholder">
+      AI insight has not been generated for this transaction yet.
+    </div>
+  )}
+
+  {aiLoading && (
+    <div className="ai-placeholder">
+      Groq is analyzing the recovery decision...
+    </div>
+  )}
+
+  {aiData && (
+    <div className="ai-content">
+
+      <div className="ai-explanation">
+        <span className="eyebrow">WHY THIS ACTION?</span>
+        <p>{aiData.explanation}</p>
+      </div>
+
+      <div className="ai-factors">
+        {aiData.key_factors?.map((factor, index) => (
+          <span key={index}>
+            {factor}
+          </span>
+        ))}
+      </div>
+
+      <div className="ai-message">
+        <span className="eyebrow">
+          CUSTOMER MESSAGE
+        </span>
+
+        <h4>{aiData.subject}</h4>
+
+        <div className="ai-message-meta">
+          <span>
+            <strong>Channel:</strong>{' '}
+            {aiData.recommended_channel}
+          </span>
+
+          <span>
+            <strong>Tone:</strong>{' '}
+            {aiData.tone}
+          </span>
+        </div>
+
+        <p>{aiData.explanation}</p>
+      </div>
+
+    </div>
+  )}
+</div>
+
+<AgentTimeline />
       <AgentTimeline />
     </>
   )

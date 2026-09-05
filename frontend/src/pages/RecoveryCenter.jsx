@@ -9,9 +9,14 @@ import PageHeader from '../components/ui/PageHeader'
 import MetricCard from '../components/dashboard/MetricCard'
 import RecoveryBoard from '../components/recovery/RecoveryBoard'
 import { api } from '../services/api'
+import { formatCurrency } from '../utils/formatCurrency'
 
 export default function RecoveryCenter() {
   const [recoveries, setRecoveries] = useState([])
+  const [batchRunning, setBatchRunning] = useState(false)
+const [batchResult, setBatchResult] = useState(null)
+const [batchError, setBatchError] = useState('')
+
   const [metrics, setMetrics] = useState({
   needs_recovery: 0,
   recovered: 0,
@@ -20,6 +25,29 @@ export default function RecoveryCenter() {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  async function handleBatchRecovery() {
+  try {
+    setBatchRunning(true)
+    setBatchResult(null)
+    setBatchError('')
+
+    const result = await api.batchRecovery()
+
+    setBatchResult(result)
+
+    // Reload the board + counts after database changes
+    await loadRecoveries()
+
+  } catch (err) {
+    console.error(err)
+
+    setBatchError(
+      'Batch recovery could not be completed.'
+    )
+  } finally {
+    setBatchRunning(false)
+  }
+}
 
   async function loadRecoveries() {
     try {
@@ -62,9 +90,48 @@ export default function RecoveryCenter() {
   return (
     <>
       <PageHeader
-        title="Recovery Center"
-        subtitle="Track and manage revenue recovery attempts across the recovery lifecycle."
-      />
+  title="Recovery Center"
+  subtitle="Manage and execute automated revenue recovery workflows."
+  actions={
+    <button
+      className="primary-button"
+      onClick={handleBatchRecovery}
+      disabled={batchRunning}
+    >
+      {batchRunning
+        ? 'Running batch...'
+        : 'Run Batch Recovery'}
+    </button>
+  }
+/>
+{batchResult && (
+  <div className="batch-result">
+    <div>
+      <strong>Batch recovery complete</strong>
+
+      <span>
+        {batchResult.attempted} attempted
+        {' · '}
+        {batchResult.successful} recovered
+        {' · '}
+        {batchResult.failed} failed
+        {' · '}
+        {batchResult.no_action} no action
+      </span>
+    </div>
+
+    <strong className="batch-revenue">
+      {formatCurrency(batchResult.revenue_recovered)}
+      {' '}recovered
+    </strong>
+  </div>
+)}
+
+{batchError && (
+  <div className="batch-error">
+    {batchError}
+  </div>
+)}
 
       <div className="recovery-metric-grid">
         <MetricCard
