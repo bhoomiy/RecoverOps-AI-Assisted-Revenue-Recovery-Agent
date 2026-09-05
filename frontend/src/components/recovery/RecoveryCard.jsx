@@ -53,12 +53,22 @@ export default function RecoveryCard({
 
       <div className="mini-row">
         <span>Priority</span>
-        <Badge value={item.priority} />
+
+        {item.priority ? (
+          <Badge value={item.priority} />
+        ) : (
+          <span>—</span>
+        )}
       </div>
 
       <div className="mini-row">
         <span>Risk</span>
-        <Badge value={item.riskLevel} />
+
+        {item.riskLevel ? (
+          <Badge value={item.riskLevel} />
+        ) : (
+          <span>—</span>
+        )}
       </div>
 
       <div className="recommended-action">

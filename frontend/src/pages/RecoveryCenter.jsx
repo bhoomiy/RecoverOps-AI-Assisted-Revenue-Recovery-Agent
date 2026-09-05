@@ -91,7 +91,7 @@ const [batchError, setBatchError] = useState('')
     <>
       <PageHeader
   title="Recovery Center"
-  subtitle="Manage and execute automated revenue recovery workflows."
+  
   actions={
     <button
       className="primary-button"

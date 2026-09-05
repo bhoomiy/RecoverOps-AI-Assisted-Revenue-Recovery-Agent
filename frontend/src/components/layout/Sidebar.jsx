@@ -27,7 +27,7 @@ export default function Sidebar({ collapsed, onToggle }) {
         ))}
       </nav>
       <div className="sidebar-bottom">
-        {!collapsed && <div className="agent-status"><div><span className="status-dot"/>Agent status</div><strong>Operational</strong><small>Everything looks lovely.</small></div>}
+        {!collapsed && <div className="agent-status"><div><span className="status-dot"/>Agent status</div><strong>Operational</strong><small>Risk detection & recovery active.</small></div>}
         <button className="collapse-button" onClick={onToggle}><ChevronLeft size={17}/></button>
       </div>
     </aside>

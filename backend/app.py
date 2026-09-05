@@ -16,6 +16,36 @@ app=Flask(__name__)
 CORS(app)
 DB_NAME=r"C:\Users\RADHAGOPINATH\recovery_revenue.db"
 
+def create_indexes():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_transactions_customer
+        ON transactions(customer_id);
+
+        CREATE INDEX IF NOT EXISTS idx_transactions_event
+        ON transactions(event_type);
+
+        CREATE INDEX IF NOT EXISTS idx_transactions_timestamp
+        ON transactions(timestamp);
+
+        CREATE INDEX IF NOT EXISTS idx_recovery_transaction
+        ON recovery_tracking(transaction_id);
+
+        CREATE INDEX IF NOT EXISTS idx_recovery_action
+        ON recovery_tracking(action_taken);
+
+        CREATE INDEX IF NOT EXISTS idx_recovery_success
+        ON recovery_tracking(success);
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+create_indexes()
+
 def make_json_serializable(obj):
     if isinstance(obj, dict):
         return {
@@ -131,10 +161,7 @@ def execute_recovery(transaction_id):
         customer_id
     )
 
-    # Generate customer-facing AI message
-    llm_result = generate_recovery_content(
-        decision_result
-    )
+    
 
     # Extract values needed by recovery simulator
     action = decision_result["action"]
@@ -157,7 +184,6 @@ def execute_recovery(transaction_id):
 
     return jsonify({
         "decision": decision_result,
-        "generated_content": llm_result,
         "recovery": recovery_result,
         "tracking_created": tracking_created
     }), 200
@@ -165,47 +191,216 @@ def execute_recovery(transaction_id):
 @app.route("/api/transactions", methods=["GET"])
 def get_transactions():
 
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    try:
+        page = max(request.args.get("page", 1, type=int), 1)
+        limit = request.args.get("limit", 50, type=int)
 
-    cursor.execute("""
-        SELECT
-            t.*,
-            r.success AS recovery_success,
-            r.simulation_result,
-            r.revenue_recovered
-        FROM transactions t
-        LEFT JOIN recovery_tracking r
-            ON t.transac_id = r.transaction_id
-        ORDER BY t.timestamp DESC
-    """)
+        if limit not in [25, 50, 100]:
+            limit = 50
 
-    rows = cursor.fetchall()
+        search = request.args.get("search", "").strip()
+        event_type = request.args.get(
+            "event_type",
+            "ALL"
+        ).strip()
 
-    transactions = []
+        recovery_status = request.args.get(
+            "recovery_status",
+            ""
+        ).strip()
 
-    for row in rows:
-        transaction = dict(row)
+        risk_level = request.args.get(
+            "risk_level",
+            ""
+        ).strip()
 
-        risk_result = detect_revenue_risk(
-            transaction["transac_id"]
+        offset = (page - 1) * limit
+
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        where = []
+        params = []
+
+        # -----------------------------------------
+        # Search
+        # -----------------------------------------
+
+        if search:
+            where.append("""
+                (
+                    CAST(t.transac_id AS TEXT) LIKE ?
+                    OR CAST(t.customer_id AS TEXT) LIKE ?
+                )
+            """)
+
+            term = f"%{search}%"
+
+            params.extend([
+                term,
+                term
+            ])
+
+        # -----------------------------------------
+        # Event filter
+        # -----------------------------------------
+
+        if event_type and event_type != "ALL":
+            where.append("t.event_type = ?")
+            params.append(event_type)
+
+        # -----------------------------------------
+        # Recovery status
+        # -----------------------------------------
+
+        if recovery_status == "RECOVERED":
+            where.append("r.success = 1")
+
+        elif recovery_status == "FAILED":
+            where.append("r.success = 0")
+
+        elif recovery_status == "PENDING":
+            where.append("""
+                t.event_type IN (
+                    'PAYMENT_FAILED',
+                    'CHECKOUT_ABANDONED'
+                )
+                AND r.transaction_id IS NULL
+            """)
+
+        elif recovery_status == "COMPLETED":
+            where.append("""
+                t.event_type = 'SUCCESSFUL_PURCHASE'
+            """)
+
+        # -----------------------------------------
+        # Risk level
+        # -----------------------------------------
+
+        risk_expression = """
+            CASE
+                WHEN t.event_type NOT IN (
+                    'PAYMENT_FAILED',
+                    'CHECKOUT_ABANDONED'
+                )
+                    THEN NULL
+
+                WHEN (
+                    CASE
+                        WHEN t.event_type = 'PAYMENT_FAILED'
+                            THEN COALESCE(t.amount, 0)
+                        ELSE COALESCE(t.cart_value, 0)
+                    END
+                ) < 5000
+                    THEN 'LOW'
+
+                WHEN (
+                    CASE
+                        WHEN t.event_type = 'PAYMENT_FAILED'
+                            THEN COALESCE(t.amount, 0)
+                        ELSE COALESCE(t.cart_value, 0)
+                    END
+                ) < 15000
+                    THEN 'MEDIUM'
+
+                ELSE 'HIGH'
+            END
+        """
+
+        if risk_level:
+            where.append(
+                f"({risk_expression}) = ?"
+            )
+
+            params.append(risk_level)
+
+        where_sql = (
+            "WHERE " + " AND ".join(where)
+            if where
+            else ""
         )
 
-        transaction["risk_level"] = (
-            risk_result.get("risk_level")
-            if risk_result
-            else None
+        # -----------------------------------------
+        # Total matching count
+        # -----------------------------------------
+
+        cursor.execute(
+            f"""
+                SELECT COUNT(*) AS count
+
+                FROM transactions t
+
+                LEFT JOIN recovery_tracking r
+                    ON t.transac_id = r.transaction_id
+
+                {where_sql}
+            """,
+            params
         )
 
-        transactions.append(transaction)
+        total = cursor.fetchone()["count"] or 0
 
-    conn.close()
+        # -----------------------------------------
+        # Current page only
+        # -----------------------------------------
 
-    return jsonify({
-        "transactions": transactions,
-        "count": len(transactions)
-    }), 200
+        cursor.execute(
+            f"""
+                SELECT
+                    t.*,
+
+                    r.success AS recovery_success,
+                    r.simulation_result,
+                    r.revenue_recovered,
+
+                    {risk_expression} AS risk_level
+
+                FROM transactions t
+
+                LEFT JOIN recovery_tracking r
+                    ON t.transac_id = r.transaction_id
+
+                {where_sql}
+
+                ORDER BY t.timestamp DESC
+
+                LIMIT ?
+                OFFSET ?
+            """,
+            params + [limit, offset]
+        )
+
+        transactions = [
+            dict(row)
+            for row in cursor.fetchall()
+        ]
+
+        conn.close()
+
+        total_pages = (
+            (total + limit - 1) // limit
+            if total > 0
+            else 1
+        )
+
+        return jsonify(
+            make_json_serializable({
+                "transactions": transactions,
+                "count": len(transactions),
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "total_pages": total_pages
+            })
+        ), 200
+
+    except Exception as e:
+        print("TRANSACTIONS ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 @app.route("/api/transactions/<int:transaction_id>", methods=["GET"])
 def get_transaction_detail(transaction_id):
@@ -269,196 +464,566 @@ def get_transaction_detail(transaction_id):
 @app.route("/api/customers", methods=["GET"])
 def get_customers():
 
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    try:
+        page = max(
+            request.args.get("page", 1, type=int),
+            1
+        )
 
-    # Get all customers
-    cursor.execute("""
-        SELECT *
-        FROM customer
-        ORDER BY cust_id
-    """)
+        limit = request.args.get(
+            "limit",
+            50,
+            type=int
+        )
 
-    customer_rows = cursor.fetchall()
+        if limit not in [25, 50, 100]:
+            limit = 50
 
-    customers = []
+        search = request.args.get(
+            "search",
+            ""
+        ).strip()
 
-    for row in customer_rows:
+        offset = (page - 1) * limit
 
-        customer = dict(row)
-        customer_id = customer["cust_id"]
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
 
-        # Get all transactions belonging to this customer
-        cursor.execute("""
-            SELECT *
-            FROM transactions
-            WHERE customer_id = ?
-        """, (customer_id,))
+        where_sql = ""
+        params = []
 
-        transaction_rows = cursor.fetchall()
+        if search:
+            where_sql = """
+                WHERE CAST(
+                    c.cust_id AS TEXT
+                ) LIKE ?
+            """
 
-        revenue_at_risk = 0
+            params.append(
+                f"%{search}%"
+            )
 
-        for transaction_row in transaction_rows:
+        # -----------------------------------------
+        # Count first
+        # -----------------------------------------
 
-            transaction = dict(transaction_row)
+        cursor.execute(
+            f"""
+                SELECT COUNT(*) AS count
+                FROM customer c
+                {where_sql}
+            """,
+            params
+        )
 
-            if transaction["event_type"] == "PAYMENT_FAILED":
-                revenue_at_risk += transaction["amount"] or 0
+        total = cursor.fetchone()["count"] or 0
 
-            elif transaction["event_type"] == "CHECKOUT_ABANDONED":
-                revenue_at_risk += transaction["cart_value"] or 0
+        # -----------------------------------------
+        # Only calculate stats for current page
+        # -----------------------------------------
 
-        # Calculate how much revenue was actually recovered
-        cursor.execute("""
-            SELECT COALESCE(SUM(r.revenue_recovered), 0)
-            FROM recovery_tracking r
-            JOIN transactions t
-                ON r.transaction_id = t.transac_id
-            WHERE t.customer_id = ?
-        """, (customer_id,))
+        cursor.execute(
+            f"""
+                WITH selected_customers AS (
+                    SELECT *
+                    FROM customer c
 
-        recovered = cursor.fetchone()[0]
+                    {where_sql}
 
-        # Use the same customer analysis logic as the rest of the project.
-        # We only need the CLV classification here.
-        clv = customer["clv"]
+                    ORDER BY c.cust_id
 
-        if clv < 9000:
-            customer_value = "LOW"
-        elif clv < 70000:
-            customer_value = "MEDIUM"
-        else:
-            customer_value = "HIGH"
+                    LIMIT ?
+                    OFFSET ?
+                ),
 
-        customer["customer_value"] = customer_value
-        customer["revenue_at_risk"] = revenue_at_risk
-        customer["recovered"] = recovered
+                transaction_stats AS (
+                    SELECT
+                        t.customer_id,
 
-        customers.append(customer)
+                        SUM(
+                            CASE
+                                WHEN t.event_type = 'PAYMENT_FAILED'
+                                    THEN COALESCE(t.amount, 0)
 
-    conn.close()
+                                WHEN t.event_type = 'CHECKOUT_ABANDONED'
+                                    THEN COALESCE(t.cart_value, 0)
 
-    return jsonify({
-        "customers": make_json_serializable(customers),
-        "count": len(customers)
-    }), 200
+                                ELSE 0
+                            END
+                        ) AS revenue_at_risk
+
+                    FROM transactions t
+
+                    JOIN selected_customers s
+                        ON s.cust_id = t.customer_id
+
+                    GROUP BY t.customer_id
+                ),
+
+                recovery_stats AS (
+                    SELECT
+                        t.customer_id,
+
+                        SUM(
+                            COALESCE(
+                                r.revenue_recovered,
+                                0
+                            )
+                        ) AS recovered
+
+                    FROM recovery_tracking r
+
+                    JOIN transactions t
+                        ON r.transaction_id =
+                           t.transac_id
+
+                    JOIN selected_customers s
+                        ON s.cust_id =
+                           t.customer_id
+
+                    GROUP BY t.customer_id
+                )
+
+                SELECT
+                    c.*,
+
+                    CASE
+                        WHEN c.clv < 9000
+                            THEN 'LOW'
+
+                        WHEN c.clv < 70000
+                            THEN 'MEDIUM'
+
+                        ELSE 'HIGH'
+                    END AS customer_value,
+
+                    COALESCE(
+                        ts.revenue_at_risk,
+                        0
+                    ) AS revenue_at_risk,
+
+                    COALESCE(
+                        rs.recovered,
+                        0
+                    ) AS recovered
+
+                FROM selected_customers c
+
+                LEFT JOIN transaction_stats ts
+                    ON c.cust_id =
+                       ts.customer_id
+
+                LEFT JOIN recovery_stats rs
+                    ON c.cust_id =
+                       rs.customer_id
+
+                ORDER BY c.cust_id
+            """,
+            params + [limit, offset]
+        )
+
+        customers = [
+            dict(row)
+            for row in cursor.fetchall()
+        ]
+
+        conn.close()
+
+        total_pages = (
+            (total + limit - 1) // limit
+            if total > 0
+            else 1
+        )
+
+        return jsonify(
+            make_json_serializable({
+                "customers": customers,
+                "count": len(customers),
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "total_pages": total_pages
+            })
+        ), 200
+
+    except Exception as e:
+        print("CUSTOMERS ERROR:", e)
+
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 @app.route("/api/recoveries", methods=["GET"])
 def get_recoveries():
 
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT
-            t.*,
-            r.success AS recovery_success,
-            r.simulation_result,
-            r.revenue_recovered,
-            r.revenue_lost,
-            r.action_taken,
-            r.reason AS recovery_reason,
-            r.timestamp AS recovery_timestamp
-        FROM transactions t
-        LEFT JOIN recovery_tracking r
-            ON t.transac_id = r.transaction_id
-        WHERE t.event_type IN (
-            'PAYMENT_FAILED',
-            'CHECKOUT_ABANDONED'
+        risk_expression = """
+            CASE
+                WHEN (
+                    CASE
+                        WHEN t.event_type = 'PAYMENT_FAILED'
+                            THEN COALESCE(t.amount, 0)
+                        ELSE COALESCE(t.cart_value, 0)
+                    END
+                ) < 5000
+                    THEN 'LOW'
+
+                WHEN (
+                    CASE
+                        WHEN t.event_type = 'PAYMENT_FAILED'
+                            THEN COALESCE(t.amount, 0)
+                        ELSE COALESCE(t.cart_value, 0)
+                    END
+                ) < 15000
+                    THEN 'MEDIUM'
+
+                ELSE 'HIGH'
+            END
+        """
+
+        # =========================================
+        # Metrics over the whole dataset
+        # =========================================
+
+        cursor.execute("""
+            SELECT
+                SUM(
+                    CASE
+                        WHEN r.transaction_id IS NULL
+                            THEN 1
+                        ELSE 0
+                    END
+                ) AS needs_recovery,
+
+                SUM(
+                    CASE
+                        WHEN r.success = 1
+                            THEN 1
+                        ELSE 0
+                    END
+                ) AS recovered,
+
+                SUM(
+                    CASE
+                        WHEN r.success = 0
+                            THEN 1
+                        ELSE 0
+                    END
+                ) AS failed
+
+            FROM transactions t
+
+            LEFT JOIN recovery_tracking r
+                ON t.transac_id =
+                   r.transaction_id
+
+            WHERE t.event_type IN (
+                'PAYMENT_FAILED',
+                'CHECKOUT_ABANDONED'
+            )
+        """)
+
+        metric_row = cursor.fetchone()
+
+        metrics = {
+            "needs_recovery":
+                metric_row["needs_recovery"] or 0,
+
+            "in_progress": 0,
+
+            "recovered":
+                metric_row["recovered"] or 0,
+
+            "failed":
+                metric_row["failed"] or 0
+        }
+
+        # =========================================
+        # Latest 30 pending
+        # =========================================
+
+        cursor.execute(
+            f"""
+                SELECT
+                    t.*,
+
+                    {risk_expression}
+                        AS risk_level,
+
+                    NULL AS recovery_success,
+                    NULL AS simulation_result,
+                    0 AS revenue_recovered,
+                    0 AS revenue_lost,
+                    NULL AS action_taken
+
+                FROM transactions t
+
+                LEFT JOIN recovery_tracking r
+                    ON t.transac_id =
+                       r.transaction_id
+
+                WHERE
+                    t.event_type IN (
+                        'PAYMENT_FAILED',
+                        'CHECKOUT_ABANDONED'
+                    )
+
+                    AND r.transaction_id IS NULL
+
+                ORDER BY t.timestamp DESC
+
+                LIMIT 30
+            """
         )
-        ORDER BY t.timestamp DESC
-    """)
 
-    rows = cursor.fetchall()
+        pending_rows = cursor.fetchall()
 
-    recoveries = []
+        recoveries = []
 
-    for row in rows:
-        item = dict(row)
+        # Only 30 Decision Agent calls now
+        for row in pending_rows:
 
-        transaction_id = item["transac_id"]
-        customer_id = item["customer_id"]
+            item = dict(row)
 
-        risk_result = detect_revenue_risk(transaction_id)
+            decision_result = get_decision(
+                item["transac_id"],
+                item["customer_id"]
+            )
 
-        decision_result = get_decision(
-            transaction_id,
-            customer_id
+            amount_at_risk = (
+                item["cart_value"]
+                if item["event_type"]
+                   == "CHECKOUT_ABANDONED"
+                else item["amount"]
+            )
+
+            recoveries.append({
+                "id": item["transac_id"],
+                "customer_id":
+                    item["customer_id"],
+
+                "event_type":
+                    item["event_type"],
+
+                "amount_at_risk":
+                    amount_at_risk,
+
+                "failure_reason":
+                    item["failure_reason"],
+
+                "timestamp":
+                    item["timestamp"],
+
+                "risk_level":
+                    item["risk_level"],
+
+                "status":
+                    "NEEDS_RECOVERY",
+
+                "recommended_action":
+                    decision_result.get(
+                        "action"
+                    ),
+
+                "priority":
+                    decision_result.get(
+                        "priority"
+                    ),
+
+                "recovery_success":
+                    None,
+
+                "simulation_result":
+                    None,
+
+                "revenue_recovered":
+                    0,
+
+                "revenue_lost":
+                    0
+            })
+
+        # =========================================
+        # Latest 30 recovered/failed
+        # =========================================
+
+        cursor.execute(
+            f"""
+                SELECT
+                    t.*,
+
+                    r.success
+                        AS recovery_success,
+
+                    r.simulation_result,
+                    r.revenue_recovered,
+                    r.revenue_lost,
+                    r.action_taken,
+
+                    {risk_expression}
+                        AS risk_level
+
+                FROM transactions t
+
+                JOIN recovery_tracking r
+                    ON t.transac_id =
+                       r.transaction_id
+
+                WHERE
+                    t.event_type IN (
+                        'PAYMENT_FAILED',
+                        'CHECKOUT_ABANDONED'
+                    )
+
+                    AND r.success = 1
+
+                ORDER BY r.timestamp DESC
+
+                LIMIT 30
+            """
         )
 
-        if item["recovery_success"] == 1:
-            status = "RECOVERED"
+        recovered_rows = cursor.fetchall()
 
-        elif item["recovery_success"] == 0:
-            status = "FAILED"
+        cursor.execute(
+            f"""
+                SELECT
+                    t.*,
 
-        else:
-            status = "NEEDS_RECOVERY"
+                    r.success
+                        AS recovery_success,
 
-        amount_at_risk = (
-            item["cart_value"]
-            if item["event_type"] == "CHECKOUT_ABANDONED"
-            else item["amount"]
+                    r.simulation_result,
+                    r.revenue_recovered,
+                    r.revenue_lost,
+                    r.action_taken,
+
+                    {risk_expression}
+                        AS risk_level
+
+                FROM transactions t
+
+                JOIN recovery_tracking r
+                    ON t.transac_id =
+                       r.transaction_id
+
+                WHERE
+                    t.event_type IN (
+                        'PAYMENT_FAILED',
+                        'CHECKOUT_ABANDONED'
+                    )
+
+                    AND r.success = 0
+
+                ORDER BY r.timestamp DESC
+
+                LIMIT 30
+            """
         )
 
-        recoveries.append({
-            "id": transaction_id,
-            "customer_id": customer_id,
-            "event_type": item["event_type"],
-            "amount_at_risk": amount_at_risk,
-            "failure_reason": item["failure_reason"],
-            "timestamp": item["timestamp"],
-            "risk_level": (
-                risk_result.get("risk_level")
-                if risk_result
-                else None
-            ),
-            "status": status,
-            "recommended_action": (
-                decision_result.get("action")
-                if decision_result
-                else None
-            ),
-            "priority": (
-                decision_result.get("priority")
-                if decision_result
-                else None
-            ),
-            "recovery_success": item["recovery_success"],
-            "simulation_result": item["simulation_result"],
-            "revenue_recovered": item["revenue_recovered"] or 0,
-            "revenue_lost": item["revenue_lost"] or 0
-        })
+        failed_rows = cursor.fetchall()
 
-    conn.close()
+        # =========================================
+        # Format already-processed records
+        # =========================================
 
-    metrics = {
-        "needs_recovery": sum(
-            1 for r in recoveries
-            if r["status"] == "NEEDS_RECOVERY"
-        ),
-        "in_progress": 0,
-        "recovered": sum(
-            1 for r in recoveries
-            if r["status"] == "RECOVERED"
-        ),
-        "failed": sum(
-            1 for r in recoveries
-            if r["status"] == "FAILED"
+        for row in (
+            list(recovered_rows)
+            + list(failed_rows)
+        ):
+
+            item = dict(row)
+
+            amount_at_risk = (
+                item["cart_value"]
+                if item["event_type"]
+                   == "CHECKOUT_ABANDONED"
+                else item["amount"]
+            )
+
+            status = (
+                "RECOVERED"
+                if item["recovery_success"] == 1
+                else "FAILED"
+            )
+
+            recoveries.append({
+                "id":
+                    item["transac_id"],
+
+                "customer_id":
+                    item["customer_id"],
+
+                "event_type":
+                    item["event_type"],
+
+                "amount_at_risk":
+                    amount_at_risk,
+
+                "failure_reason":
+                    item["failure_reason"],
+
+                "timestamp":
+                    item["timestamp"],
+
+                "risk_level":
+                    item["risk_level"],
+
+                "status":
+                    status,
+
+                "recommended_action":
+                    item["action_taken"],
+
+                # Decision priority was not persisted.
+                # Don't invent one.
+                "priority":
+                    None,
+
+                "recovery_success":
+                    item["recovery_success"],
+
+                "simulation_result":
+                    item["simulation_result"],
+
+                "revenue_recovered":
+                    item["revenue_recovered"] or 0,
+
+                "revenue_lost":
+                    item["revenue_lost"] or 0
+            })
+
+        conn.close()
+
+        return jsonify(
+            make_json_serializable({
+                "recoveries":
+                    recoveries,
+
+                "metrics":
+                    metrics,
+
+                "count":
+                    len(recoveries)
+            })
+        ), 200
+
+    except Exception as e:
+        print(
+            "RECOVERIES ERROR:",
+            e
         )
-    }
 
-    return jsonify(
-        make_json_serializable({
-            "recoveries": recoveries,
-            "metrics": metrics,
-            "count": len(recoveries)
-        })
-    ), 200
+        return jsonify({
+            "error": str(e)
+        }), 500
 
+    
 @app.route("/api/dashboard", methods=["GET"])
 def get_dashboard():
     try:
@@ -522,6 +1087,7 @@ def get_dashboard():
                 COUNT(*) AS recovery_attempts
 
             FROM recovery_tracking
+            WHERE action_taken != 'NO_ACTION'
         """)
 
         recovery_row = cursor.fetchone()
@@ -584,32 +1150,50 @@ def get_dashboard():
         # Risk distribution
         # ---------------------------------------
 
+        cursor.execute("""
+            SELECT
+                CASE
+                    WHEN (
+                        CASE
+                            WHEN event_type = 'PAYMENT_FAILED'
+                                THEN COALESCE(amount, 0)
+                            ELSE COALESCE(cart_value, 0)
+                        END
+                    ) < 5000
+                    THEN 'LOW'
+
+                    WHEN (
+                        CASE
+                            WHEN event_type = 'PAYMENT_FAILED'
+                                THEN COALESCE(amount, 0)
+                            ELSE COALESCE(cart_value, 0)
+                        END
+                    ) < 15000
+                    THEN 'MEDIUM'
+
+                    ELSE 'HIGH'
+                END AS risk_level,
+
+                COUNT(*) AS count
+
+            FROM transactions
+
+            WHERE event_type IN (
+                'PAYMENT_FAILED',
+                'CHECKOUT_ABANDONED'
+            )
+
+            GROUP BY risk_level
+        """)
+
         risk_counts = {
             "LOW": 0,
             "MEDIUM": 0,
             "HIGH": 0
         }
 
-        cursor.execute("""
-            SELECT transac_id
-            FROM transactions
-            WHERE event_type IN (
-                'PAYMENT_FAILED',
-                'CHECKOUT_ABANDONED'
-            )
-        """)
-
-        risky_transactions = cursor.fetchall()
-
-        for row in risky_transactions:
-            risk_result = detect_revenue_risk(
-                row["transac_id"]
-            )
-
-            risk_level = risk_result.get("risk_level")
-
-            if risk_level in risk_counts:
-                risk_counts[risk_level] += 1
+        for row in cursor.fetchall():
+            risk_counts[row["risk_level"]] = row["count"]
 
 
         total_risky_events = sum(risk_counts.values())
@@ -864,7 +1448,7 @@ def run_batch_recovery():
             "error": str(e)
         }), 500
 
-@app.route("/api/transactions/<int:transaction_id>/ai",methods=["POST"])
+@app.route("/api/transactions/<int:transaction_id>/ai", methods=["POST"])
 def generate_transaction_ai(transaction_id):
     try:
         conn = sqlite3.connect(DB_NAME)
@@ -879,9 +1463,8 @@ def generate_transaction_ai(transaction_id):
 
         transaction = cursor.fetchone()
 
-        conn.close()
-
         if not transaction:
+            conn.close()
             return jsonify({
                 "error": "Transaction not found"
             }), 404
@@ -893,16 +1476,44 @@ def generate_transaction_ai(transaction_id):
             customer_id
         )
 
+        cursor.execute("""
+            SELECT
+                action_taken,
+                success,
+                simulation_result,
+                revenue_recovered,
+                revenue_lost,
+                reason,
+                timestamp
+            FROM recovery_tracking
+            WHERE transaction_id = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """, (transaction_id,))
+
+        recovery_row = cursor.fetchone()
+
+        recovery_result = (
+            dict(recovery_row)
+            if recovery_row
+            else None
+        )
+
+        conn.close()
+
         generated_content = generate_recovery_content(
-            decision_result
+            decision_result,
+            recovery_result
         )
 
         return jsonify(
             make_json_serializable({
                 "transaction_id": transaction_id,
+                "decision": decision_result,
+                "recovery": recovery_result,
                 "generated_content": generated_content
             })
-        )
+        ), 200
 
     except Exception as e:
         print("AI GENERATION ERROR:", e)
@@ -911,6 +1522,7 @@ def generate_transaction_ai(transaction_id):
             "error": str(e)
         }), 500
 
+    
 @app.route("/api/analytics", methods=["GET"])
 def get_analytics():
     try:
@@ -1094,15 +1706,40 @@ def get_analytics():
         # =====================================================
 
         cursor.execute("""
-            SELECT transac_id
+            SELECT
+                CASE
+                    WHEN (
+                        CASE
+                            WHEN event_type = 'PAYMENT_FAILED'
+                                THEN COALESCE(amount, 0)
+                            ELSE COALESCE(cart_value, 0)
+                        END
+                    ) < 5000
+                    THEN 'LOW'
+
+                    WHEN (
+                        CASE
+                            WHEN event_type = 'PAYMENT_FAILED'
+                                THEN COALESCE(amount, 0)
+                            ELSE COALESCE(cart_value, 0)
+                        END
+                    ) < 15000
+                    THEN 'MEDIUM'
+
+                    ELSE 'HIGH'
+                END AS risk_level,
+
+                COUNT(*) AS count
+
             FROM transactions
+
             WHERE event_type IN (
                 'PAYMENT_FAILED',
                 'CHECKOUT_ABANDONED'
             )
-        """)
 
-        risky_transactions = cursor.fetchall()
+            GROUP BY risk_level
+        """)
 
         risk_counts = {
             "HIGH": 0,
@@ -1110,18 +1747,12 @@ def get_analytics():
             "LOW": 0
         }
 
-        for row in risky_transactions:
+        for row in cursor.fetchall():
+            risk_counts[row["risk_level"]] = row["count"]
 
-            risk_result = detect_revenue_risk(
-                row["transac_id"]
-            )
-
-            level = risk_result.get("risk_level")
-
-            if level in risk_counts:
-                risk_counts[level] += 1
-
-        risk_total = sum(risk_counts.values())
+        risk_total = sum(
+            risk_counts.values()
+        )
 
         risk_distribution = []
 

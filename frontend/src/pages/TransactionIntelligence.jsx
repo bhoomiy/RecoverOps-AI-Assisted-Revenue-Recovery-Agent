@@ -228,32 +228,30 @@ async function handleGenerateAI() {
       </div>
 
       <div className="ai-message">
-        <span className="eyebrow">
-          CUSTOMER MESSAGE
-        </span>
+  <span className="eyebrow">
+    CUSTOMER MESSAGE
+  </span>
 
-        <h4>{aiData.subject}</h4>
+  <h4>{aiData.subject}</h4>
 
-        <div className="ai-message-meta">
-          <span>
-            <strong>Channel:</strong>{' '}
-            {aiData.recommended_channel}
-          </span>
+  <div className="ai-message-meta">
+    <span>
+      <strong>Channel:</strong>{' '}
+      {aiData.recommended_channel}
+    </span>
 
-          <span>
-            <strong>Tone:</strong>{' '}
-            {aiData.tone}
-          </span>
-        </div>
+    <span>
+      <strong>Tone:</strong>{' '}
+      {aiData.tone}
+    </span>
+  </div>
 
-        <p>{aiData.explanation}</p>
-      </div>
+  <p>{aiData.message}</p>
+</div>
 
     </div>
   )}
 </div>
-
-<AgentTimeline />
       <AgentTimeline />
     </>
   )
